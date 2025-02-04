@@ -10,7 +10,10 @@ int lookForFTStart(const char* pBuff, int buffLen)
     for (int i = 0; i < buffLen; i++)
     {
         if (pBuff[i] == FT12_STARTBYTE)
+        {
             startByteIndex = i;
+            break;
+        }
     }
     
     return startByteIndex;
@@ -18,8 +21,8 @@ int lookForFTStart(const char* pBuff, int buffLen)
 
 bool checkPattern(const char* pBuff, int buffLen, int startByteIndex)
 {
-    return (pBuff[startByteIndex]       == pBuff[startByteIndex + 3] &&
-            pBuff[startByteIndex + 1]   == pBuff[startByteIndex + 2]
+    return ((pBuff[startByteIndex]       == pBuff[startByteIndex + 3]) &&
+            (pBuff[startByteIndex + 1]   == pBuff[startByteIndex + 2])
             );
 }
 
