@@ -1,6 +1,8 @@
 #include <stdbool.h>
-#include <iostream>
+#include <stdio.h>
 #include <Windows.h>
 
-short lookForFTStart(const char* pBuff);
-void readBuff(const char* pBuff);
+void printBuff(const char* pBuff, int buffLen);
+int lookForFTStart(const char* pBuff, int buffLen);
+bool checkPattern(const char* pBuff, int buffLen, int startByteIndex);
+int readBuff(const char* pBuff, int buffLen);
