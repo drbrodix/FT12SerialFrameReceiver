@@ -6,5 +6,5 @@
 
 void printBuff(const char* pBuff, int buffLen);
 int lookForFTStart(const char* pBuff, int buffLen);
-bool checkPattern(const char* pBuff, int buffLen, int startByteIndex);
-int readBuff(const char* pBuff, int buffLen);
+bool checkPattern(const char* pBuff, int startByteIndex);
+int findFt12Frame(const char* pBuff, int buffLen, int* destBuff);

@@ -3,4 +3,12 @@ project(SerialReader C)
 
 set(CMAKE_C_STANDARD 11)
 
-add_executable(SerialReader SerialReader.c)
+set(headers
+    SerialReader.h
+)
+
+set(sources
+    SerialReader.c
+)
+
+add_executable(SerialReader ${headers} ${sources})
