@@ -1,4 +1,4 @@
-#include "SerialReader.h"
+#include "FT12SerialFrameReceiver.h"
 
 #include <string.h>
 
