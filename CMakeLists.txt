@@ -8,7 +8,7 @@ set(headers
 )
 
 set(sources
-        FT12SerialFrameReceiver.h
+        FT12SerialFrameReceiver.c
 )
 
 add_executable(FT12SerialFrameReceiver ${headers} ${sources})
