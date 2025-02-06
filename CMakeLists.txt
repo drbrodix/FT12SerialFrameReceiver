@@ -1,14 +1,14 @@
 cmake_minimum_required(VERSION 3.30)
-project(SerialReader C)
+project(FT12SerialFrameReceiver C)
 
 set(CMAKE_C_STANDARD 11)
 
 set(headers
-    SerialReader.h
+    FT12SerialFrameReceiver.h
 )
 
 set(sources
-    SerialReader.c
+    FT12SerialFrameReceiver.c
 )
 
-add_executable(SerialReader ${headers} ${sources})
+add_executable(FT12SerialFrameReceiver ${headers} ${sources})

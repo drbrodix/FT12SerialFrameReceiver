@@ -1,4 +1,4 @@
-#include "SerialReader.h"
+#include "FT12SerialFrameReceiver.h"
 
 #include <string.h>
 
@@ -94,7 +94,11 @@ STATES readBuffer(const unsigned char* pBuff, const int buffLen, unsigned char* 
         return currentState;
     }
     currentState = FRAME_OK;
-    memcpy_s(destBuff, FT12_ARRAY_LENGTH, pBuff + startByteIndex, GET_FT12_LENGTH(startByteIndex, endByteStartIndex));
+    memcpy_s(destBuff,
+        FT12_ARRAY_LENGTH,
+        pBuff + startByteIndex,
+        GET_FT12_LENGTH(startByteIndex, endByteStartIndex));
+
     return currentState;
 }
 
