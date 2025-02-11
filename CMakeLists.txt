@@ -12,3 +12,4 @@ set(sources
 )
 
 add_executable(FT12SerialFrameReceiver ${headers} ${sources})
+add_executable(TestThreads TestThreads.c TestThreads.h)

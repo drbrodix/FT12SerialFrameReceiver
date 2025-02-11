@@ -38,6 +38,8 @@ typedef struct {
     bool isEndByteFound;
 } ReaderInfo;
 
-STATES readBuffer(const unsigned char* pBuff, const DWORD bytesRead, unsigned char* destBuff, ReaderInfo* ri);
+WINBOOL configPort(HANDLE hSerial);
+WINBOOL configTimeouts(HANDLE hSerial);
+STATES readFrame(const unsigned char* pBuff, const DWORD bytesRead, unsigned char* destBuff, ReaderInfo* ri);
 void printBuff(const unsigned char* pBuff, DWORD buffLen);
 DWORD WINAPI InputThread(LPVOID lpParameter);

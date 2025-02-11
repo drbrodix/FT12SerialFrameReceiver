@@ -8,7 +8,7 @@ void printBuff(const unsigned char* pBuff, DWORD buffLen) {
     printf("\n");
 }
 
-STATES readBuffer(const unsigned char* pBuff, const DWORD bytesRead, unsigned char* destBuff, ReaderInfo* ri) {
+STATES readFrame(const unsigned char* pBuff, const DWORD bytesRead, unsigned char* destBuff, ReaderInfo* ri) {
 
     // typedef enum {
     //     SEARCHING_START_BYTE        = 0,
@@ -46,7 +46,6 @@ STATES readBuffer(const unsigned char* pBuff, const DWORD bytesRead, unsigned ch
                         break;
                     }
                     ri->currentInputIndex++;
-                    ri->currentOutputIndex++;
                 }
             break;
 
@@ -93,7 +92,9 @@ STATES readBuffer(const unsigned char* pBuff, const DWORD bytesRead, unsigned ch
                     ri->currentInputIndex++;
                     ri->currentOutputIndex++;
                 }
-                ri->currentState = CHECKING_CHECKSUM;
+
+                if (ri->currentOutputIndex > GET_PAYLOAD_END_INDEX(ri->payloadLength))
+                    ri->currentState = CHECKING_CHECKSUM;
             break;
 
             case CHECKING_CHECKSUM:
@@ -121,44 +122,30 @@ STATES readBuffer(const unsigned char* pBuff, const DWORD bytesRead, unsigned ch
     return ri->currentState;
 }
 
-// Thread function to handle user input.
-DWORD WINAPI InputThread(LPVOID lpParameter) {
-    getchar();
-
-    return 0;
-}
-
-int main(int argc, char const *argv[]) {
-    // Test input buffer array
-    /*const unsigned char testPack[INPUT_ARRAY_LENGTH] =   {0x68, 0x68, 0x16, 0x68,
-                                                            0x68, 0x68, 0x0c, 0x0c,
-                                                            0x68, 0x73, 0xf0, 0x06,
-                                                            0x00, 0x03, 0x00, 0x01,
-                                                            0x00, 0x03, 0x03, 0x01,
-                                                            0x01, 0x75, 0x16, 0x0e};*/
-
-    // Open the serial port in overlapped mode.
+HANDLE createHandle(LPCSTR fileName) {
     HANDLE hSerial = CreateFile(
-        "COM3",                        // Change this as needed (e.g., "COM3")
-        GENERIC_READ | GENERIC_WRITE,
-        0,                             // No sharing
-        NULL,                          // Default security attributes
-        OPEN_EXISTING,
-        FILE_FLAG_OVERLAPPED,          // Overlapped mode
-        NULL
+    fileName,                        // Change this as needed (e.g., "COM3")
+    GENERIC_READ | GENERIC_WRITE,
+    0,                             // No sharing
+    NULL,                          // Default security attributes
+    OPEN_EXISTING,
+    FILE_FLAG_OVERLAPPED,          // Overlapped mode
+    NULL
     );
     if (hSerial == INVALID_HANDLE_VALUE) {
         fprintf(stderr, "Error opening serial port\n");
-        return 1;
     }
+    return hSerial;
+}
 
-    // Configure serial port parameters.
+WINBOOL configPort(HANDLE hSerial) {
+
     DCB dcbSerialParams = {0};
     dcbSerialParams.DCBlength = sizeof(dcbSerialParams);
     if (!GetCommState(hSerial, &dcbSerialParams)) {
         fprintf(stderr, "Error getting serial port state\n");
         CloseHandle(hSerial);
-        return 1;
+        return false;
     }
     dcbSerialParams.BaudRate = CBR_19200;
     dcbSerialParams.ByteSize   = 8;
@@ -167,10 +154,12 @@ int main(int argc, char const *argv[]) {
     if (!SetCommState(hSerial, &dcbSerialParams)) {
         fprintf(stderr, "Error setting serial port state\n");
         CloseHandle(hSerial);
-        return 1;
+        return false;
     }
+    return true;
+}
 
-    // Optionally, set timeouts.
+WINBOOL configTimeouts(HANDLE hSerial) {
     COMMTIMEOUTS timeouts = {0};
     timeouts.ReadIntervalTimeout         = 50;
     timeouts.ReadTotalTimeoutConstant    = 50;
@@ -180,7 +169,33 @@ int main(int argc, char const *argv[]) {
     if (!SetCommTimeouts(hSerial, &timeouts)) {
         fprintf(stderr, "Error setting timeouts\n");
         CloseHandle(hSerial);
-        return 1;
+        return false;
+    }
+    return true;
+}
+
+// Thread function to handle user input.
+DWORD WINAPI InputThread(LPVOID lpParameter) {
+    getchar();
+    return 0;
+}
+
+int main(int argc, char const *argv[]) {
+
+    // Open the serial port in overlapped mode.
+    HANDLE hSerial = createHandle("\\\\.\\COM3");
+    if (hSerial == INVALID_HANDLE_VALUE) {
+        return EXIT_FAILURE;
+    }
+
+    // Configure serial port parameters.
+    if (!configPort(hSerial)) {
+        return EXIT_FAILURE;
+    }
+
+    // Set timeouts.
+    if (!configTimeouts(hSerial)) {
+        return EXIT_FAILURE;
     }
 
     // Create a thread to handle user input.
@@ -211,7 +226,7 @@ int main(int argc, char const *argv[]) {
     printf("Press [Enter] to stop listening...\n");
 
     // Loop: perform asynchronous reads.
-    // (This loop will run until the input thread ends, e.g., when EOF is received on stdin.)
+    // (This loop will run until the input thread ends.)
     while (true) {
         // Initiate an asynchronous read.
         BOOL readResult = ReadFile(
@@ -247,7 +262,7 @@ int main(int argc, char const *argv[]) {
         if (bytesRead > 0) {
             // While the buffer has not been completely read
             while (ri.currentInputIndex < bytesRead) {
-                readBuffer(buffer, bytesRead, ft12Frame, &ri);
+                readFrame(buffer, bytesRead, ft12Frame, &ri);
 
                 printBuff(ft12Frame, sizeof(ft12Frame));
                 printf("Start byte match: %d\n"
@@ -263,7 +278,6 @@ int main(int argc, char const *argv[]) {
 
                 // If the frame has been completely read
                 if (ri.currentState == RECEPTION_COMPLETE) {
-                    ri.currentState = SEARCHING_START_BYTE;
                     const DWORD currentInputIndex = ri.currentInputIndex;
                     memset(&ft12Frame, 0, sizeof(ft12Frame));
                     memset(&ri, 0, sizeof(ri));
@@ -271,16 +285,12 @@ int main(int argc, char const *argv[]) {
                 }
             }
             // Reset buffer and reader struct if buffer has been completely read
-                memset(&ri, 0, sizeof(ri));
-                memset(&ft12Frame, 0, sizeof(ft12Frame));
-                memset(&buffer, 0, sizeof(buffer));
+            memset(&buffer, 0, sizeof(buffer));
+            ri.currentInputIndex = 0;
         }
         // Reset the event for the next read.
         ResetEvent(osRead.hEvent);
     }
-
-    // Clean up: wait for the input thread to finish and close all handles.
-    WaitForSingleObject(hThread, INFINITE);
     CloseHandle(hThread);
     CloseHandle(osRead.hEvent);
     CloseHandle(hSerial);
