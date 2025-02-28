@@ -30,75 +30,123 @@ STATES stateMachine(unsigned char *pBuff, const DWORD bytesRead, ReaderInfo *ri)
     //     bool doesChecksumMatch;
     //     bool isEndByteFound;
     // } ReaderInfo;
-    while (ri->readerIndex < bytesRead)
+    while (ri->currentIndex < bytesRead)
     {
         switch (ri->currentState)
         {
             // Base state, looking for start byte of a frame
             case SEARCHING_START_BYTE:
                 // Start byte 0x68 found
-                if (pBuff[ri->readerIndex] == FT12_START_BYTE)
+                if (pBuff[ri->currentIndex] == FT12_START_BYTE)
                 {
-                    ri->startByteIndex = ri->readerIndex;
-                    ri->readerIndex++;
+                    // Mark index as startByteIndex
+                    ri->startByteIndex = ri->currentIndex;
+
+                    // Move 1 byte forward for next byte read
+                    ri->currentIndex++;
+
+                    // Set state for next step
                     ri->currentState = CHECKING_FIRST_LENGTH;
+
                     break;
                 }
                 // Start byte not found, try the next byte
                 else
                 {
-                    ri->readerIndex++;
+                    // Move 1 byte forward for next byte read
+                    ri->currentIndex++;
                 }
                 break;
 
             case CHECKING_FIRST_LENGTH:
-                // Store the payload length
-                ri->payloadLength = pBuff[ri->readerIndex];
-                ri->readerIndex++;
+                // Assuming it's the payload length,
+                // store it in a variable for further use
+                ri->payloadLength = pBuff[ri->currentIndex];
+
+                // Move 1 byte forward for next byte read
+                ri->currentIndex++;
+
+                // Set state for next step
                 ri->currentState = CHECKING_SECOND_LENGTH;
+
                 break;
 
             case CHECKING_SECOND_LENGTH:
-                // Length bytes match
-                if (pBuff[ri->readerIndex] == pBuff[ri->readerIndex - 1])
+                // Check whether the supposed second
+                // length byte matches with the first one
+                if (pBuff[ri->currentIndex] == pBuff[ri->currentIndex - 1])
                 {
-                    ri->readerIndex++;
+                    // Set state for next step if length bytes match
                     ri->currentState = CHECKING_SECOND_START_BYTE;
                 }
                 // Length bytes don't match, hence not a valid FT 1.2 header.
                 // Back to looking for start byte
                 else
                 {
+                    // Set state for going back to
+                    // looking for start byte
                     ri->currentState = SEARCHING_START_BYTE;
                 }
+                // Move 1 byte forward for next byte read
+                ri->currentIndex++;
                 break;
 
             case CHECKING_SECOND_START_BYTE:
-                // Both start bytes found at expected offset from each other
-                if (pBuff[ri->readerIndex] == pBuff[ri->readerIndex - 3])
+                // Check whether both start bytes are found
+                // at expected offset from each other
+                if (pBuff[ri->currentIndex] == pBuff[ri->currentIndex - 3])
                 {
-                    ri->readerIndex++;
+                    // If both start bytes are found,
+                    // set the state accordingly
                     ri->currentState = HEADER_FOUND;
                 }
+                // If start bytes don't match, mark the
+                // current index as garbageIndex, since
+                // the previous bytes are not part of a frame
                 else
                 {
                     ri->currentState = SEARCHING_START_BYTE;
                 }
+                ri->currentIndex++;
                 break;
 
             case HEADER_FOUND:
+                // Check if there's garbage before the actual frame to Wireshark
+                if (pBuff[ri->currentRoundIndex] != pBuff[ri->startByteIndex])
+                {
+                    // Push the garbage before the actual frame to Wireshark
+                    printBuff(pBuff, ri->currentRoundIndex, ri->startByteIndex - 1);
+                }
+
                 ri->endByteIndex = FIND_FT12_END_BYTE(ri->startByteIndex, ri->payloadLength);
 
                 // If rest of frame is in buffer
                 if (ri->endByteIndex < bytesRead)
                 {
+                    // Push the frame to Wireshark
                     printBuff(pBuff, ri->startByteIndex, ri->endByteIndex);
+
+                    // Set reader index one byte after the
+                    // end byte of the last pushed frame
+                    ri->currentIndex = ri->endByteIndex + 1;
+
+                    // Mark the start index of the next round of reading.
+                    // Used to calculate the range of garbage.
+                    ri->currentRoundIndex = ri->currentIndex;
+
+                    // Set state back to start byte searching
+                    ri->currentState = SEARCHING_START_BYTE;
                 }
+                // Only a segment of the frame is in the current buffer
                 else
                 {
+                    // Move partial frame to the start of the buffer
+                    memmove(pBuff, pBuff + ri->startByteIndex, bytesRead - ri->startByteIndex);
+                    // Adjust indices
+                    ri->currentIndex = bytesRead - ri->startByteIndex + 1;
+                    ri->startByteIndex, ri->currentRoundIndex = 0;
                     fprintf(stderr, "Rest of frame is not in buff!\n");
                 }
-                ri->currentState = SEARCHING_START_BYTE;
                 break;
 
             default:
@@ -109,39 +157,6 @@ STATES stateMachine(unsigned char *pBuff, const DWORD bytesRead, ReaderInfo *ri)
     // Reached if buffer has been completely read
     return ri->currentState;
 }
-
-// void readBuffer(unsigned char *pBuff, const DWORD bytesRead, unsigned char *destBuff, ReaderInfo *ri)
-// {
-//     while (ri->readerIndex < bytesRead)
-//     {
-//         stateMachine(pBuff, bytesRead, destBuff, ri);
-//
-//         printBuff(destBuff, FT12_ARRAY_LENGTH);
-//         printf("Start byte match: %d\n"
-//                "Length byte match: %d\n"
-//                "Checksum match: %d\n"
-//                "End byte found: %d\n"
-//                "Data left in input buffer... Data: %d\n",
-//                ri->doStartBytesMatch,
-//                ri->doLengthBytesMatch,
-//                ri->doesChecksumMatch,
-//                ri->isEndByteFound,
-//                bytesRead - ri->currentInputIndex);
-//
-//         // If the frame has been completely read
-//         if (ri->currentState == RECEPTION_COMPLETE)
-//         {
-//             const DWORD currentInputIndex = ri->currentInputIndex;
-//             memset(destBuff, 0, FT12_ARRAY_LENGTH);
-//             memset(ri, 0, sizeof(*ri));
-//             ri->currentInputIndex = currentInputIndex;
-//         }
-//     }
-//     // Reset buffer and current input index in
-//     // reader struct if buffer has been completely read
-//     memset(pBuff, 0, INPUT_ARRAY_LENGTH);
-//     ri->currentInputIndex = 0;
-// }
 
 HANDLE createHandle(LPCSTR fileName)
 {
@@ -337,7 +352,7 @@ int main(int argc, char const *argv[])
         // Initiate an asynchronous read.
         BOOL readResult = ReadFile(
             hSerial,
-            buffer,
+            buffer + ri.currentIndex,
             sizeof(buffer),
             &bytesRead,
             &osRead
@@ -373,8 +388,8 @@ int main(int argc, char const *argv[])
         // If actual data has been received
         if (bytesRead > 0)
         {
-            // While the buffer has not been completely read
             stateMachine(buffer, bytesRead, &ri);
+
             ZeroMemory(&ri, sizeof(ReaderInfo));
         }
         // Reset the event for the next read.

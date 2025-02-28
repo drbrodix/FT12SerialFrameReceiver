@@ -12,7 +12,6 @@
 #define FT12_END_BYTE       0x16
 #define FIND_FT12_END_BYTE(START_BYTE_INDEX, PAYLOAD_LENGTH) (START_BYTE_INDEX + 5 + PAYLOAD_LENGTH)
 #define GET_FT12_LENGTH(START_BYTE_INDEX, END_BYTE_INDEX) ((END_BYTE_INDEX - START_BYTE_INDEX) + 1)
-#define GET_PAYLOAD_END_INDEX(PAYLOAD_LENGTH) (PAYLOAD_LENGTH + 3)
 
 typedef enum {
     SEARCHING_START_BYTE        = 0,
@@ -24,16 +23,17 @@ typedef enum {
 
 typedef struct {
     STATES currentState;
-    DWORD readerIndex;
+    DWORD currentIndex;
+    DWORD currentRoundIndex;
     DWORD startByteIndex;
     DWORD endByteIndex;
     unsigned char payloadLength;
+    bool resetRI;
 } ReaderInfo;
 
 HANDLE createHandle(LPCSTR fileName);
 WINBOOL configPort(HANDLE hSerial);
 WINBOOL configTimeouts(HANDLE hSerial);
-void readBuffer(unsigned char* pBuff, DWORD bytesRead, unsigned char* destBuff, ReaderInfo* ri);
 STATES stateMachine(unsigned char* pBuff, DWORD bytesRead, ReaderInfo* ri);
 void printBuff(const unsigned char* pBuff, DWORD startIndex, DWORD endIndex);
 DWORD WINAPI InputThread(LPVOID lpParameter);
