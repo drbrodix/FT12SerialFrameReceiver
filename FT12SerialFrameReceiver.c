@@ -160,15 +160,16 @@ STATES stateMachine(unsigned char *pBuff, const DWORD bytesRead, ReaderInfo *ri)
 
 HANDLE createHandle(LPCSTR fileName)
 {
-    HANDLE hSerial = CreateFile(
-        fileName, // Change this as needed (e.g., "COM3")
-        GENERIC_READ | GENERIC_WRITE,
-        0, // No sharing
-        NULL, // Default security attributes
-        OPEN_EXISTING,
-        FILE_FLAG_OVERLAPPED, // Overlapped mode
-        NULL
-    );
+    HANDLE hSerial = CreateFile
+                                (
+                                    fileName,
+                                    GENERIC_READ | GENERIC_WRITE,
+                                    0,
+                                    NULL,
+                                    OPEN_EXISTING,
+                                    FILE_FLAG_OVERLAPPED,
+                                    NULL
+                                );
     if (hSerial == INVALID_HANDLE_VALUE)
     {
         fprintf(stderr, "Error opening serial port\n");
@@ -186,10 +187,10 @@ WINBOOL configPort(HANDLE hSerial)
         CloseHandle(hSerial);
         return false;
     }
-    dcbSerialParams.BaudRate = CBR_19200;
-    dcbSerialParams.ByteSize = 8;
-    dcbSerialParams.StopBits = ONESTOPBIT;
-    dcbSerialParams.Parity = EVENPARITY;
+    dcbSerialParams.BaudRate    = CBR_19200;
+    dcbSerialParams.ByteSize    = 8;
+    dcbSerialParams.StopBits    = ONESTOPBIT;
+    dcbSerialParams.Parity      = EVENPARITY;
     if (!SetCommState(hSerial, &dcbSerialParams))
     {
         fprintf(stderr, "Error setting serial port state\n");
@@ -201,12 +202,12 @@ WINBOOL configPort(HANDLE hSerial)
 
 WINBOOL configTimeouts(HANDLE hSerial)
 {
-    COMMTIMEOUTS timeouts = {0};
-    timeouts.ReadIntervalTimeout = 50;
-    timeouts.ReadTotalTimeoutConstant = 50;
-    timeouts.ReadTotalTimeoutMultiplier = 10;
-    timeouts.WriteTotalTimeoutConstant = 50;
-    timeouts.WriteTotalTimeoutMultiplier = 10;
+    COMMTIMEOUTS timeouts                   = {0};
+    timeouts.ReadIntervalTimeout            = 50;
+    timeouts.ReadTotalTimeoutConstant       = 50;
+    timeouts.ReadTotalTimeoutMultiplier     = 10;
+    timeouts.WriteTotalTimeoutConstant      = 50;
+    timeouts.WriteTotalTimeoutMultiplier    = 10;
     if (!SetCommTimeouts(hSerial, &timeouts))
     {
         fprintf(stderr, "Error setting timeouts\n");
@@ -216,7 +217,6 @@ WINBOOL configTimeouts(HANDLE hSerial)
     return true;
 }
 
-// Thread function to handle user input.
 DWORD WINAPI InputThread(LPVOID lpParameter)
 {
     getchar();
@@ -225,6 +225,10 @@ DWORD WINAPI InputThread(LPVOID lpParameter)
 
 int main(int argc, char const *argv[])
 {
+    ////                                                            ////
+    //// COMMENTED SECTION BELOW HAS BEEN KEPT FOR TESTING PURPOSES ////
+    ////                                                            ////
+
     /*ReaderInfo ri = {0};
     unsigned char ft12Frame[FT12_ARRAY_LENGTH] = {0};
 
@@ -297,26 +301,26 @@ int main(int argc, char const *argv[])
                                                             0x00, 0x03, 0x03, 0x01,
                                                             0x01, 0x75, 0x16, 0x0e};*/
 
-    // Open the serial port in overlapped mode.
+    // Open the serial port in overlapped mode
     HANDLE hSerial = createHandle("\\\\.\\COM3");
     if (hSerial == INVALID_HANDLE_VALUE)
     {
         return EXIT_FAILURE;
     }
 
-    // Configure serial port parameters.
+    // Configure serial port parameters
     if (!configPort(hSerial))
     {
         return EXIT_FAILURE;
     }
 
-    // Set timeouts.
+    // Set timeouts
     if (!configTimeouts(hSerial))
     {
         return EXIT_FAILURE;
     }
 
-    // Create a thread to handle user input.
+    // Create a thread to handle user input
     DWORD threadId;
     HANDLE hThread = CreateThread(
         NULL, 0, InputThread, hSerial, 0, &threadId
@@ -328,9 +332,8 @@ int main(int argc, char const *argv[])
         return 1;
     }
 
-    // Main thread: asynchronous read loop.
+    // Main thread: asynchronous read loop
     char buffer[INPUT_ARRAY_LENGTH] = {0};
-    char ft12Frame[FT12_ARRAY_LENGTH] = {0};
     DWORD bytesRead = 0;
     OVERLAPPED osRead = {0};
     osRead.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
@@ -345,11 +348,10 @@ int main(int argc, char const *argv[])
 
     printf("Press [Enter] to stop listening...\n");
 
-    // Loop: perform asynchronous reads.
-    // (This loop will run until the input thread ends.)
+    // This loop will run until the input thread ends
     while (true)
     {
-        // Initiate an asynchronous read.
+        // Initiate an asynchronous read
         BOOL readResult = ReadFile(
             hSerial,
             buffer + ri.currentIndex,
@@ -361,14 +363,14 @@ int main(int argc, char const *argv[])
         {
             if (GetLastError() == ERROR_IO_PENDING)
             {
-                // Wait briefly for the read to complete.
+                // Wait briefly for the read to complete
                 DWORD waitRes = WaitForSingleObject(osRead.hEvent, 100);
                 if (waitRes == WAIT_TIMEOUT)
                 {
                     // Check if the input thread is still active.
                     if (WaitForSingleObject(hThread, 0) == WAIT_OBJECT_0)
                     {
-                        // Input thread ended (e.g., user closed stdin); exit the loop.
+                        // Input thread ended, terminate the loop
                         break;
                     }
                     continue;
@@ -388,9 +390,14 @@ int main(int argc, char const *argv[])
         // If actual data has been received
         if (bytesRead > 0)
         {
-            stateMachine(buffer, bytesRead, &ri);
-
-            ZeroMemory(&ri, sizeof(ReaderInfo));
+            // The state machine should return with HEADER_FOUND state
+            // only if a partial frame has been read. In this case
+            // keeping the ReaderInfos is necessary, hence the structure
+            // should not be reset. The structure needs to be reset otherwise.
+            if (stateMachine(buffer, bytesRead, &ri) != HEADER_FOUND)
+            {
+                ZeroMemory(&ri, sizeof(ReaderInfo));
+            }
         }
         // Reset the event for the next read.
         ResetEvent(osRead.hEvent);
