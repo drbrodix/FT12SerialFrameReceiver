@@ -1,24 +1,22 @@
 #include "FT12SerialFrameReceiver.h"
 
-void printBuff(const unsigned char* pBuff, DWORD buffLen) {
-    for (DWORD i = 0; i < buffLen; i++)
+void printBuff(const unsigned char *pBuff, const DWORD startIndex, const DWORD endIndex)
+{
+    for (DWORD i = startIndex; i <= endIndex; i++)
     {
         printf("%x ", pBuff[i]);
     }
     printf("\n");
 }
 
-STATES readFrame(const unsigned char* pBuff, const DWORD bytesRead, unsigned char* destBuff, ReaderInfo* ri) {
-
+STATES stateMachine(unsigned char *pBuff, const DWORD bytesRead, ReaderInfo *ri)
+{
     // typedef enum {
     //     SEARCHING_START_BYTE        = 0,
     //     CHECKING_FIRST_LENGTH       = 1,
     //     CHECKING_SECOND_LENGTH      = 2,
     //     CHECKING_SECOND_START_BYTE  = 3,
-    //     CHECKING_CONTROL_BYTE       = 4,
-    //     CHECKING_BAOS_PAYLOAD       = 5,
-    //     CHECKING_CHECKSUM           = 6,
-    //     CHECKING_END_BYTE           = 7,
+    //     HEADER_FOUND                = 4
     // } STATES;
     //
     // typedef struct {
@@ -32,126 +30,153 @@ STATES readFrame(const unsigned char* pBuff, const DWORD bytesRead, unsigned cha
     //     bool doesChecksumMatch;
     //     bool isEndByteFound;
     // } ReaderInfo;
-
-    while (ri->currentInputIndex < bytesRead) {
-        switch (ri->currentState) {
-
+    while (ri->readerIndex < bytesRead)
+    {
+        switch (ri->currentState)
+        {
+            // Base state, looking for start byte of a frame
             case SEARCHING_START_BYTE:
-                while (ri->currentInputIndex < bytesRead) {
-                    if (pBuff[ri->currentInputIndex] == FT12_START_BYTE) {
-                        destBuff[ri->currentOutputIndex] = pBuff[ri->currentInputIndex];
-                        ri->currentState = CHECKING_FIRST_LENGTH;
-                        ri->currentInputIndex++;
-                        ri->currentOutputIndex++;
-                        break;
-                    }
-                    ri->currentInputIndex++;
+                // Start byte 0x68 found
+                if (pBuff[ri->readerIndex] == FT12_START_BYTE)
+                {
+                    ri->startByteIndex = ri->readerIndex;
+                    ri->readerIndex++;
+                    ri->currentState = CHECKING_FIRST_LENGTH;
+                    break;
                 }
-            break;
+                // Start byte not found, try the next byte
+                else
+                {
+                    ri->readerIndex++;
+                }
+                break;
 
             case CHECKING_FIRST_LENGTH:
-                destBuff[ri->currentOutputIndex] = pBuff[ri->currentInputIndex];
-                ri->payloadLength = pBuff[ri->currentInputIndex];
+                // Store the payload length
+                ri->payloadLength = pBuff[ri->readerIndex];
+                ri->readerIndex++;
                 ri->currentState = CHECKING_SECOND_LENGTH;
-                ri->currentInputIndex++;
-                ri->currentOutputIndex++;
-            break;
+                break;
 
             case CHECKING_SECOND_LENGTH:
-                destBuff[ri->currentOutputIndex] = pBuff[ri->currentInputIndex];
-                ri->doLengthBytesMatch = destBuff[ri->currentOutputIndex] == destBuff[ri->currentOutputIndex - 1];
-                ri->currentState = CHECKING_SECOND_START_BYTE;
-                ri->currentInputIndex++;
-                ri->currentOutputIndex++;
-            break;
+                // Length bytes match
+                if (pBuff[ri->readerIndex] == pBuff[ri->readerIndex - 1])
+                {
+                    ri->readerIndex++;
+                    ri->currentState = CHECKING_SECOND_START_BYTE;
+                }
+                // Length bytes don't match, hence not a valid FT 1.2 header.
+                // Back to looking for start byte
+                else
+                {
+                    ri->currentState = SEARCHING_START_BYTE;
+                }
+                break;
 
             case CHECKING_SECOND_START_BYTE:
-                destBuff[ri->currentOutputIndex] = pBuff[ri->currentInputIndex];
-                ri->doStartBytesMatch = destBuff[ri->currentOutputIndex] == destBuff[ri->currentOutputIndex - 3];
-                ri->currentState = CHECKING_CONTROL_BYTE;
-                ri->currentInputIndex++;
-                ri->currentOutputIndex++;
-            break;
-
-            case CHECKING_CONTROL_BYTE:
-                destBuff[ri->currentOutputIndex] = pBuff[ri->currentInputIndex];
-                ri->checksumSum = destBuff[ri->currentOutputIndex];
-                ri->currentState = CHECKING_BAOS_PAYLOAD;
-                ri->currentInputIndex++;
-                ri->currentOutputIndex++;
-            break;
-
-            case CHECKING_BAOS_PAYLOAD:
-                // It must be checked, that we don't try to access empty elements in the array,
-                // and it is also necessary to ensure that we only access the payload part of the frame.
-                while  ((ri->currentInputIndex < bytesRead) &&
-                        (ri->currentOutputIndex <= GET_PAYLOAD_END_INDEX(ri->payloadLength))) {
-
-                    destBuff[ri->currentOutputIndex] = pBuff[ri->currentInputIndex];
-                    ri->checksumSum += destBuff[ri->currentOutputIndex];
-                    ri->currentInputIndex++;
-                    ri->currentOutputIndex++;
+                // Both start bytes found at expected offset from each other
+                if (pBuff[ri->readerIndex] == pBuff[ri->readerIndex - 3])
+                {
+                    ri->readerIndex++;
+                    ri->currentState = HEADER_FOUND;
                 }
+                else
+                {
+                    ri->currentState = SEARCHING_START_BYTE;
+                }
+                break;
 
-                if (ri->currentOutputIndex > GET_PAYLOAD_END_INDEX(ri->payloadLength))
-                    ri->currentState = CHECKING_CHECKSUM;
-            break;
+            case HEADER_FOUND:
+                ri->endByteIndex = FIND_FT12_END_BYTE(ri->startByteIndex, ri->payloadLength);
 
-            case CHECKING_CHECKSUM:
-                destBuff[ri->currentOutputIndex] = pBuff[ri->currentInputIndex];
-                ri->doesChecksumMatch = (ri->checksumSum % 256) == destBuff[ri->currentOutputIndex];
-                ri->currentState = CHECKING_END_BYTE;
-                ri->currentInputIndex++;
-                ri->currentOutputIndex++;
-            break;
-
-            case CHECKING_END_BYTE:
-                destBuff[ri->currentOutputIndex] = pBuff[ri->currentInputIndex];
-                ri->isEndByteFound = (destBuff[ri->currentOutputIndex] == FT12_END_BYTE);
-                ri->currentState = RECEPTION_COMPLETE;
-                ri->currentInputIndex++;
-                ri->currentOutputIndex++;
-                return ri->currentState;
-            break;
+                // If rest of frame is in buffer
+                if (ri->endByteIndex < bytesRead)
+                {
+                    printBuff(pBuff, ri->startByteIndex, ri->endByteIndex);
+                }
+                else
+                {
+                    fprintf(stderr, "Rest of frame is not in buff!\n");
+                }
+                ri->currentState = SEARCHING_START_BYTE;
+                break;
 
             default:
                 break;
         }
     }
 
+    // Reached if buffer has been completely read
     return ri->currentState;
 }
 
-HANDLE createHandle(LPCSTR fileName) {
+// void readBuffer(unsigned char *pBuff, const DWORD bytesRead, unsigned char *destBuff, ReaderInfo *ri)
+// {
+//     while (ri->readerIndex < bytesRead)
+//     {
+//         stateMachine(pBuff, bytesRead, destBuff, ri);
+//
+//         printBuff(destBuff, FT12_ARRAY_LENGTH);
+//         printf("Start byte match: %d\n"
+//                "Length byte match: %d\n"
+//                "Checksum match: %d\n"
+//                "End byte found: %d\n"
+//                "Data left in input buffer... Data: %d\n",
+//                ri->doStartBytesMatch,
+//                ri->doLengthBytesMatch,
+//                ri->doesChecksumMatch,
+//                ri->isEndByteFound,
+//                bytesRead - ri->currentInputIndex);
+//
+//         // If the frame has been completely read
+//         if (ri->currentState == RECEPTION_COMPLETE)
+//         {
+//             const DWORD currentInputIndex = ri->currentInputIndex;
+//             memset(destBuff, 0, FT12_ARRAY_LENGTH);
+//             memset(ri, 0, sizeof(*ri));
+//             ri->currentInputIndex = currentInputIndex;
+//         }
+//     }
+//     // Reset buffer and current input index in
+//     // reader struct if buffer has been completely read
+//     memset(pBuff, 0, INPUT_ARRAY_LENGTH);
+//     ri->currentInputIndex = 0;
+// }
+
+HANDLE createHandle(LPCSTR fileName)
+{
     HANDLE hSerial = CreateFile(
-    fileName,                        // Change this as needed (e.g., "COM3")
-    GENERIC_READ | GENERIC_WRITE,
-    0,                             // No sharing
-    NULL,                          // Default security attributes
-    OPEN_EXISTING,
-    FILE_FLAG_OVERLAPPED,          // Overlapped mode
-    NULL
+        fileName, // Change this as needed (e.g., "COM3")
+        GENERIC_READ | GENERIC_WRITE,
+        0, // No sharing
+        NULL, // Default security attributes
+        OPEN_EXISTING,
+        FILE_FLAG_OVERLAPPED, // Overlapped mode
+        NULL
     );
-    if (hSerial == INVALID_HANDLE_VALUE) {
+    if (hSerial == INVALID_HANDLE_VALUE)
+    {
         fprintf(stderr, "Error opening serial port\n");
     }
     return hSerial;
 }
 
-WINBOOL configPort(HANDLE hSerial) {
-
+WINBOOL configPort(HANDLE hSerial)
+{
     DCB dcbSerialParams = {0};
     dcbSerialParams.DCBlength = sizeof(dcbSerialParams);
-    if (!GetCommState(hSerial, &dcbSerialParams)) {
+    if (!GetCommState(hSerial, &dcbSerialParams))
+    {
         fprintf(stderr, "Error getting serial port state\n");
         CloseHandle(hSerial);
         return false;
     }
     dcbSerialParams.BaudRate = CBR_19200;
-    dcbSerialParams.ByteSize   = 8;
-    dcbSerialParams.StopBits   = ONESTOPBIT;
-    dcbSerialParams.Parity     = EVENPARITY;
-    if (!SetCommState(hSerial, &dcbSerialParams)) {
+    dcbSerialParams.ByteSize = 8;
+    dcbSerialParams.StopBits = ONESTOPBIT;
+    dcbSerialParams.Parity = EVENPARITY;
+    if (!SetCommState(hSerial, &dcbSerialParams))
+    {
         fprintf(stderr, "Error setting serial port state\n");
         CloseHandle(hSerial);
         return false;
@@ -159,14 +184,16 @@ WINBOOL configPort(HANDLE hSerial) {
     return true;
 }
 
-WINBOOL configTimeouts(HANDLE hSerial) {
+WINBOOL configTimeouts(HANDLE hSerial)
+{
     COMMTIMEOUTS timeouts = {0};
-    timeouts.ReadIntervalTimeout         = 50;
-    timeouts.ReadTotalTimeoutConstant    = 50;
-    timeouts.ReadTotalTimeoutMultiplier  = 10;
-    timeouts.WriteTotalTimeoutConstant   = 50;
+    timeouts.ReadIntervalTimeout = 50;
+    timeouts.ReadTotalTimeoutConstant = 50;
+    timeouts.ReadTotalTimeoutMultiplier = 10;
+    timeouts.WriteTotalTimeoutConstant = 50;
     timeouts.WriteTotalTimeoutMultiplier = 10;
-    if (!SetCommTimeouts(hSerial, &timeouts)) {
+    if (!SetCommTimeouts(hSerial, &timeouts))
+    {
         fprintf(stderr, "Error setting timeouts\n");
         CloseHandle(hSerial);
         return false;
@@ -175,26 +202,102 @@ WINBOOL configTimeouts(HANDLE hSerial) {
 }
 
 // Thread function to handle user input.
-DWORD WINAPI InputThread(LPVOID lpParameter) {
+DWORD WINAPI InputThread(LPVOID lpParameter)
+{
     getchar();
     return 0;
 }
 
-int main(int argc, char const *argv[]) {
+int main(int argc, char const *argv[])
+{
+    /*ReaderInfo ri = {0};
+    unsigned char ft12Frame[FT12_ARRAY_LENGTH] = {0};
+
+    // Test input buffer arrays
+    DWORD bytesRead1 = 12;
+    const unsigned char testPack1[INPUT_ARRAY_LENGTH] = {0x00, 0x68, 0x0c, 0x0c,
+                                                         0x68, 0x73, 0xf0, 0x06,
+                                                         0x00, 0x03, 0x00, 0x01};
+
+    DWORD bytesRead2 = 7;
+    const unsigned char testPack2[INPUT_ARRAY_LENGTH] = {0x00, 0x03, 0x03, 0x01,
+                                                         0x01, 0x75, 0x16};
+
+    while (ri.currentInputIndex < bytesRead1) {
+        readFrame(testPack1, bytesRead1, ft12Frame, &ri);
+
+        printBuff(ft12Frame, sizeof(ft12Frame));
+        printf("Start byte match: %d\n"
+               "Length byte match: %d\n"
+               "Checksum match: %d\n"
+               "End byte found: %d\n"
+               "Data left in input buffer... Data: %d\n",
+                        ri.doStartBytesMatch,
+                        ri.doLengthBytesMatch,
+                        ri.doesChecksumMatch,
+                        ri.isEndByteFound,
+                        bytesRead1 - ri.currentInputIndex);
+
+        // If the frame has been completely read
+        if (ri.currentState == RECEPTION_COMPLETE) {
+            const DWORD currentInputIndex = ri.currentInputIndex;
+            memset(&ft12Frame, 0, sizeof(ft12Frame));
+            memset(&ri, 0, sizeof(ri));
+            ri.currentInputIndex = currentInputIndex;
+        }
+    }
+
+    // Reset buffer and reader struct if buffer has been completely read
+    memset(testPack1, 0, sizeof(testPack1));
+    ri.currentInputIndex = 0;
+
+    while (ri.currentInputIndex < bytesRead2) {
+        readFrame(testPack2, bytesRead2, ft12Frame, &ri);
+
+        printBuff(ft12Frame, sizeof(ft12Frame));
+        printf("Start byte match: %d\n"
+               "Length byte match: %d\n"
+               "Checksum match: %d\n"
+               "End byte found: %d\n"
+               "Data left in input buffer... Data: %d\n",
+                        ri.doStartBytesMatch,
+                        ri.doLengthBytesMatch,
+                        ri.doesChecksumMatch,
+                        ri.isEndByteFound,
+                        bytesRead2 - ri.currentInputIndex);
+
+        // If the frame has been completely read
+        if (ri.currentState == RECEPTION_COMPLETE) {
+            const DWORD currentInputIndex = ri.currentInputIndex;
+            memset(&ft12Frame, 0, sizeof(ft12Frame));
+            memset(&ri, 0, sizeof(ri));
+            ri.currentInputIndex = currentInputIndex;
+        }
+    }*/
+
+
+    /*const unsigned char testPack3[INPUT_ARRAY_LENGTH] =  {0x00, 0x68, 0x0c, 0x0c,
+                                                            0x68, 0x73, 0xf0, 0x06,
+                                                            0x00, 0x03, 0x00, 0x01,
+                                                            0x00, 0x03, 0x03, 0x01,
+                                                            0x01, 0x75, 0x16, 0x0e};*/
 
     // Open the serial port in overlapped mode.
     HANDLE hSerial = createHandle("\\\\.\\COM3");
-    if (hSerial == INVALID_HANDLE_VALUE) {
+    if (hSerial == INVALID_HANDLE_VALUE)
+    {
         return EXIT_FAILURE;
     }
 
     // Configure serial port parameters.
-    if (!configPort(hSerial)) {
+    if (!configPort(hSerial))
+    {
         return EXIT_FAILURE;
     }
 
     // Set timeouts.
-    if (!configTimeouts(hSerial)) {
+    if (!configTimeouts(hSerial))
+    {
         return EXIT_FAILURE;
     }
 
@@ -203,7 +306,8 @@ int main(int argc, char const *argv[]) {
     HANDLE hThread = CreateThread(
         NULL, 0, InputThread, hSerial, 0, &threadId
     );
-    if (hThread == NULL) {
+    if (hThread == NULL)
+    {
         fprintf(stderr, "Error creating input thread\n");
         CloseHandle(hSerial);
         return 1;
@@ -215,10 +319,11 @@ int main(int argc, char const *argv[]) {
     DWORD bytesRead = 0;
     OVERLAPPED osRead = {0};
     osRead.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-    if (osRead.hEvent == NULL) {
+    if (osRead.hEvent == NULL)
+    {
         fprintf(stderr, "Error creating event for read\n");
         CloseHandle(hSerial);
-        return 1;
+        return EXIT_FAILURE;
     }
 
     ReaderInfo ri = {0};
@@ -227,7 +332,8 @@ int main(int argc, char const *argv[]) {
 
     // Loop: perform asynchronous reads.
     // (This loop will run until the input thread ends.)
-    while (true) {
+    while (true)
+    {
         // Initiate an asynchronous read.
         BOOL readResult = ReadFile(
             hSerial,
@@ -236,57 +342,40 @@ int main(int argc, char const *argv[]) {
             &bytesRead,
             &osRead
         );
-        if (!readResult) {
-            if (GetLastError() == ERROR_IO_PENDING) {
+        if (!readResult)
+        {
+            if (GetLastError() == ERROR_IO_PENDING)
+            {
                 // Wait briefly for the read to complete.
                 DWORD waitRes = WaitForSingleObject(osRead.hEvent, 100);
-                if (waitRes == WAIT_TIMEOUT) {
+                if (waitRes == WAIT_TIMEOUT)
+                {
                     // Check if the input thread is still active.
-                    if (WaitForSingleObject(hThread, 0) == WAIT_OBJECT_0) {
+                    if (WaitForSingleObject(hThread, 0) == WAIT_OBJECT_0)
+                    {
                         // Input thread ended (e.g., user closed stdin); exit the loop.
                         break;
                     }
                     continue;
                 }
-                if (!GetOverlappedResult(hSerial, &osRead, &bytesRead, FALSE)) {
+                if (!GetOverlappedResult(hSerial, &osRead, &bytesRead, FALSE))
+                {
                     fprintf(stderr, "Error in GetOverlappedResult for read\n");
                     break;
                 }
-            } else {
+            } else
+            {
                 fprintf(stderr, "Error in ReadFile\n");
                 break;
             }
         }
 
         // If actual data has been received
-        if (bytesRead > 0) {
+        if (bytesRead > 0)
+        {
             // While the buffer has not been completely read
-            while (ri.currentInputIndex < bytesRead) {
-                readFrame(buffer, bytesRead, ft12Frame, &ri);
-
-                printBuff(ft12Frame, sizeof(ft12Frame));
-                printf("Start byte match: %d\n"
-                       "Length byte match: %d\n"
-                       "Checksum match: %d\n"
-                       "End byte found: %d\n"
-                       "Data left in input buffer... Data: %d\n",
-                                ri.doStartBytesMatch,
-                                ri.doLengthBytesMatch,
-                                ri.doesChecksumMatch,
-                                ri.isEndByteFound,
-                                bytesRead - ri.currentInputIndex);
-
-                // If the frame has been completely read
-                if (ri.currentState == RECEPTION_COMPLETE) {
-                    const DWORD currentInputIndex = ri.currentInputIndex;
-                    memset(&ft12Frame, 0, sizeof(ft12Frame));
-                    memset(&ri, 0, sizeof(ri));
-                    ri.currentInputIndex = currentInputIndex;
-                }
-            }
-            // Reset buffer and reader struct if buffer has been completely read
-            memset(&buffer, 0, sizeof(buffer));
-            ri.currentInputIndex = 0;
+            stateMachine(buffer, bytesRead, &ri);
+            ZeroMemory(&ri, sizeof(ReaderInfo));
         }
         // Reset the event for the next read.
         ResetEvent(osRead.hEvent);

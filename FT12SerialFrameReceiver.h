@@ -6,7 +6,7 @@
 #include <Windows.h>
 
 #define READ_TIMEOUT        500
-#define INPUT_ARRAY_LENGTH  200
+#define INPUT_ARRAY_LENGTH  250
 #define FT12_ARRAY_LENGTH   250
 #define FT12_START_BYTE     0x68
 #define FT12_END_BYTE       0x16
@@ -19,27 +19,21 @@ typedef enum {
     CHECKING_FIRST_LENGTH       = 1,
     CHECKING_SECOND_LENGTH      = 2,
     CHECKING_SECOND_START_BYTE  = 3,
-    CHECKING_CONTROL_BYTE       = 4,
-    CHECKING_BAOS_PAYLOAD       = 5,
-    CHECKING_CHECKSUM           = 6,
-    CHECKING_END_BYTE           = 7,
-    RECEPTION_COMPLETE          = 8,
+    HEADER_FOUND                = 4
 } STATES;
 
 typedef struct {
     STATES currentState;
-    DWORD currentInputIndex;
-    DWORD currentOutputIndex;
+    DWORD readerIndex;
+    DWORD startByteIndex;
+    DWORD endByteIndex;
     unsigned char payloadLength;
-    int checksumSum;
-    bool doStartBytesMatch;
-    bool doLengthBytesMatch;
-    bool doesChecksumMatch;
-    bool isEndByteFound;
 } ReaderInfo;
 
+HANDLE createHandle(LPCSTR fileName);
 WINBOOL configPort(HANDLE hSerial);
 WINBOOL configTimeouts(HANDLE hSerial);
-STATES readFrame(const unsigned char* pBuff, const DWORD bytesRead, unsigned char* destBuff, ReaderInfo* ri);
-void printBuff(const unsigned char* pBuff, DWORD buffLen);
+void readBuffer(unsigned char* pBuff, DWORD bytesRead, unsigned char* destBuff, ReaderInfo* ri);
+STATES stateMachine(unsigned char* pBuff, DWORD bytesRead, ReaderInfo* ri);
+void printBuff(const unsigned char* pBuff, DWORD startIndex, DWORD endIndex);
 DWORD WINAPI InputThread(LPVOID lpParameter);
