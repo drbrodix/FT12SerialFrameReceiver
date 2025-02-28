@@ -11,6 +11,7 @@ void printBuff(const unsigned char *pBuff, const DWORD startIndex, const DWORD e
 
 STATES stateMachine(unsigned char *pBuff, const DWORD bytesRead, ReaderInfo *ri)
 {
+    // // Enumerator of the used states of the state machine
     // typedef enum {
     //     SEARCHING_START_BYTE        = 0,
     //     CHECKING_FIRST_LENGTH       = 1,
@@ -19,16 +20,16 @@ STATES stateMachine(unsigned char *pBuff, const DWORD bytesRead, ReaderInfo *ri)
     //     HEADER_FOUND                = 4
     // } STATES;
     //
+    // // Structure to keep track of necessary infos
+    // // related to the buffer analysis process
     // typedef struct {
     //     STATES currentState;
-    //     DWORD currentInputIndex;
-    //     DWORD currentOutputIndex;
+    //     DWORD currentIndex;
+    //     DWORD currentRoundIndex;
+    //     DWORD startByteIndex;
+    //     DWORD endByteIndex;
     //     unsigned char payloadLength;
-    //     int checksumSum;
-    //     bool doStartBytesMatch;
-    //     bool doLengthBytesMatch;
-    //     bool doesChecksumMatch;
-    //     bool isEndByteFound;
+    //     bool resetRI;
     // } ReaderInfo;
     while (ri->currentIndex < bytesRead)
     {
